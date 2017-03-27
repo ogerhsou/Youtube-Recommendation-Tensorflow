@@ -13,17 +13,17 @@ test_file = "data/dbpedia.test"
 label_dict = {}
 sku_dict = {}
 
-max_window_size = 100
+max_window_size = 1000
 batch_size = 500
 emb_size = 128
 
 # Parameters
-learning_rate = 0.1
+learning_rate = 0.01
 training_epochs = 1
 display_step = 1
 
 # Network Parameters
-n_hidden_1 = 256 # 1st layer number of features
+n_hidden_1 = 128 # 1st layer number of features
 # n_hidden_2 = 256 # 2nd layer number of features
 
 def init_data(read_file):
@@ -59,7 +59,7 @@ def read_data(pos, batch_size, data_lst):
                 x[line_no][col_no] = sku_dict[i]
                 mask[line_no][col_no] = 1
                 col_no += 1
-            if col_no >= 100:
+            if col_no >= max_window_size:
                 break
         word_num[line_no] = col_no
         line_no += 1
@@ -68,7 +68,7 @@ def read_data(pos, batch_size, data_lst):
 
 #========================
 init_data(train_file)
-n_classes = len(label_dict) # MNIST total classes (0-9 digits)
+n_classes = len(label_dict)
 train_lst = linecache.getlines(train_file)
 print("Class Num: ", n_classes)
 
@@ -87,8 +87,10 @@ biases = {
 # Create model
 def multilayer_perceptron(x, weights, biases):
     # Hidden layer with RELU activation
+    #x = tf.nn.dropout(x, 0.8)
     layer_1 = tf.add(tf.matmul(x, weights['h1']), biases['b1'])
     layer_1 = tf.nn.relu(layer_1)
+    #dlayer_1 = tf.nn.dropout(layer_1, 0.5)
     #layer_2 = tf.add(tf.matmul(layer_1, weights['h2']), biases['b2'])
     #layer_2 = tf.nn.relu(layer_2)
     # Output layer with linear activation
@@ -108,7 +110,7 @@ x_batch = tf.placeholder(tf.int32, shape=[None, max_window_size])
 y_batch = tf.placeholder(tf.int64, [None, 1])
 
 input_embedding = tf.nn.embedding_lookup(embedding['input'], x_batch)
-project_embedding = tf.div(tf.reduce_sum(tf.mul(input_embedding,emb_mask), 1),word_num)
+project_embedding = tf.div(tf.reduce_sum(tf.multiply(input_embedding,emb_mask), 1),word_num)
 
 # Construct model
 pred = multilayer_perceptron(project_embedding, weights, biases)
@@ -126,13 +128,12 @@ loss = tf.reduce_mean(tf.nn.nce_loss(weights=nce_weights,
                      num_sampled=10,
                      num_classes=n_classes))
 
-# Define loss and optimizer
-# cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=pred, labels=y_batch))
 cost = tf.reduce_sum(loss) / batch_size
 optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
 out_layer = tf.matmul(pred, tf.transpose(nce_weights)) + nce_biases
 
 init = tf.global_variables_initializer()
+#with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
 with tf.Session() as sess:
     sess.run(init)
 
@@ -145,7 +146,7 @@ with tf.Session() as sess:
         for i in range(total_batch):
             x, y, batch_mask, word_number = read_data(i * batch_size, batch_size, train_lst)
             _,c = sess.run([optimizer, cost], feed_dict={x_batch: x, emb_mask: batch_mask, word_num: word_number, y_batch: y})
-            print("Epoch %d Batch %d Elapsed time %fs" %(epoch, i, time.time() - start_time))
+            #print("Epoch %d Batch %d Elapsed time %fs" %(epoch, i, time.time() - start_time))
             # Compute average loss
             avg_cost += c / total_batch
             # correct_prediction = tf.equal(tf.argmax(out_layer, 1), tf.reshape(y_batch, [batch_size]))
@@ -170,5 +171,4 @@ with tf.Session() as sess:
         batch_accuracy = accuracy.eval({x_batch: x, y_batch: y, emb_mask: batch_mask, word_num: word_number})
         print("Batch Accuracy: ", batch_accuracy)
         final_accuracy += batch_accuracy
-
     print("Final Accuracy: ", final_accuracy * 1.0 / total_batch)
